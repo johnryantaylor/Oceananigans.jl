@@ -1,27 +1,32 @@
+pushfirst!(LOAD_PATH, joinpath("..", ".."))
+
+using Oceananigans
+using Oceananigans: fields
+using Oceananigans.Grids: on_architecture
+using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, GridFittedBottom, GridFittedBoundary, mask_immersed_field!
+using Oceananigans.Architectures: device
+
+using KernelAbstractions: MultiEvent
 using Printf
 using GLMakie
-using Oceananigans
-using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, GridFittedBottom, GridFittedBoundary, mask_immersed_field!
-using Oceananigans: fields
-using Oceananigans.Architectures: device
-using KernelAbstractions: MultiEvent
 
-Nz = 512 # Resolution
+arch = CPU()
+Nz = 64 # Resolution
 κ = 1e-6 # Diffusivity and viscosity (Prandtl = 1)
 U = 1
 
-underlying_grid = RegularRectilinearGrid(size = (2Nz, Nz),
-                                         x = (-4, 4),
-                                         z = (0, 4),
-                                         halo = (3, 3),
-                                         topology = (Periodic, Flat, Bounded))
+underlying_grid = RectilinearGrid(arch,
+                                  size = (2Nz, Nz),
+                                  x = (-4, 4),
+                                  z = (0, 4),
+                                  halo = (3, 3),
+                                  topology = (Periodic, Flat, Bounded))
 
 const slope = 1/2
 @inline wedge(x, y) = slope * min(x, -x) + 1
 grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(wedge))
 
-model = NonhydrostaticModel(architecture = GPU(),
-                            grid = grid,
+model = NonhydrostaticModel(grid = grid,
                             advection = UpwindBiasedFifthOrder(),
                             closure = IsotropicDiffusivity(ν=κ, κ=κ),
                             tracers = nothing,
@@ -41,6 +46,9 @@ function x_momentum(u)
     return sum(fluid_u)
 end
 
+Δt = 5e-2 * (grid.Lx / grid.Nz) / U
+simulation = Simulation(model, Δt = Δt, stop_time = 10)
+
 u, v, w = model.velocities
 ΣUi = x_momentum(u)
 
@@ -59,12 +67,9 @@ function progress(s)
     return nothing
 end
 
-Δt = 5e-2 * grid.Δx / U
-
-simulation = Simulation(model, Δt = Δt, stop_time = 10, progress = progress, iteration_interval = 10)
+simulation.callbacks[:progress] = Callback(progress, IterationInterval(10))
 
 prefix = "flow_over_wedge_Nz$(Nz)_high_Re"
-
 simulation.output_writers[:fields] = JLD2OutputWriter(model, model.velocities,
                                                       schedule = TimeInterval(0.1),
                                                       prefix = prefix,
@@ -75,11 +80,10 @@ run!(simulation)
 
 @info """
     Simulation complete.
-    Runtime: $(prettytime(simulation.run_time))
+    Runtime: $(prettytime(simulation.run_wall_time))
 """
 
-filepath = prefix *  ".jld2"
-
+filepath = prefix * ".jld2"
 ut = FieldTimeSeries(filepath, "u", grid=grid)
 wt = FieldTimeSeries(filepath, "w", grid=grid)
 
