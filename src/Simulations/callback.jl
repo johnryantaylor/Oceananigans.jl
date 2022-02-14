@@ -1,31 +1,20 @@
-struct Callback{F, S}
+struct Callback{P, F, S}
     func :: F
     schedule :: S
+    parameters :: P
 end
 
-(callback::Callback)(sim) = callback.func(sim)
+@inline (callback::Callback)(sim) = callback.func(sim, callback.parameters)
+@inline (callback::Callback{<:Nothing})(sim) = callback.func(sim)
 
 """
-    Callback(func; schedule=IterationInterval(1))
+    Callback(func, schedule=IterationInterval(1); parameters=nothing)
 
-Return `Callback` that executes `func(sim::Simulation)` on `schedule`.
+Return `Callback` that executes `func` on `schedule`
+with optional `parameters`. `schedule = IterationInterval(1)` by default.
+
+If `isnothing(parameters)`, `func(sim::Simulation)` is called.
+Otherwise, `func` is called via `func(sim::Simulation, parameteres)`.
 """
-Callback(func; schedule=IterationInterval(1)) = Callback(func, schedule)
-
-#####
-##### Utilities for run!
-#####
-
-default_callback_name(n) = Symbol(:callback, n)
-
-function add_callbacks!(sim, callbacks)
-    n_existing_callbacks = length(sim.callbacks)
-
-    for (i, callback) in enumerate(callbacks)
-        name = default_callback_name(n_existing_callbacks + i)
-        sim.callbacks[name] = callback
-    end
-
-    return nothing
-end
-
+Callback(func, schedule=IterationInterval(1); parameters=nothing) =
+    Callback(func, schedule, parameters)

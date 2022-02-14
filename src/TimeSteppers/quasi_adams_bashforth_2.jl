@@ -2,8 +2,9 @@ using Oceananigans.Fields: FunctionField, location
 using Oceananigans.TurbulenceClosures: implicit_step!
 using Oceananigans.Architectures: device_event
 
-struct QuasiAdamsBashforth2TimeStepper{FT, GT, IT} <: AbstractTimeStepper
+mutable struct QuasiAdamsBashforth2TimeStepper{FT, GT, IT} <: AbstractTimeStepper
                   χ :: FT
+        previous_Δt :: FT
                  Gⁿ :: GT
                  G⁻ :: GT
     implicit_solver :: IT
@@ -12,23 +13,28 @@ end
 """
     QuasiAdamsBashforth2TimeStepper(arch, grid, tracers, χ=0.1;
                                     implicit_solver = nothing,
-                                    Gⁿ = TendencyFields(arch, grid, tracers),
-                                    G⁻ = TendencyFields(arch, grid, tracers))
+                                    Gⁿ = TendencyFields(grid, tracers),
+                                    G⁻ = TendencyFields(grid, tracers))
 
 Return an QuasiAdamsBashforth2TimeStepper object with tendency fields on `arch` and
 `grid` with AB2 parameter `χ`. The tendency fields can be specified via optional
 kwargs.
 """
-function QuasiAdamsBashforth2TimeStepper(arch, grid, tracers,
+function QuasiAdamsBashforth2TimeStepper(grid, tracers,
                                          χ = 0.1;
                                          implicit_solver::IT = nothing,
-                                         Gⁿ = TendencyFields(arch, grid, tracers),
-                                         G⁻ = TendencyFields(arch, grid, tracers)) where IT
+                                         Gⁿ = TendencyFields(grid, tracers),
+                                         G⁻ = TendencyFields(grid, tracers)) where IT
 
     FT = eltype(grid)
     GT = typeof(Gⁿ)
 
-    return QuasiAdamsBashforth2TimeStepper{FT, GT, IT}(χ, Gⁿ, G⁻, implicit_solver)
+    return QuasiAdamsBashforth2TimeStepper{FT, GT, IT}(χ, Inf, Gⁿ, G⁻, implicit_solver)
+end
+
+function reset!(timestepper::QuasiAdamsBashforth2TimeStepper)
+    timestepper.previous_Δt = Inf
+    return nothing
 end
 
 #####
@@ -44,9 +50,15 @@ pressure-correction substep. Setting `euler=true` will take a forward Euler time
 function time_step!(model::AbstractModel{<:QuasiAdamsBashforth2TimeStepper}, Δt; euler=false)
     Δt == 0 && @warn "Δt == 0 may cause model blowup!"
 
+    # Shenanigans for properly starting the AB2 loop with an Euler step
+    euler = euler || (Δt != model.timestepper.previous_Δt)
     χ = ifelse(euler, convert(eltype(model.grid), -0.5), model.timestepper.χ)
 
-    # Be paranoid and update state at iteration 0, in case run! is not used:
+    euler && @debug "Taking a forward Euler step."
+
+    model.timestepper.previous_Δt = Δt
+
+    # Be paranoid and update state at iteration 0
     model.clock.iteration == 0 && update_state!(model)
 
     calculate_tendencies!(model)

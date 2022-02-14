@@ -4,7 +4,7 @@
 #
 # This example demonstrates:
 #
-#   * How to use `ComputedField`s for output.
+#   * How to use computed `Field`s for output.
 #   * How to post-process saved output using `FieldTimeSeries`.
 #
 # ## Install dependencies
@@ -34,11 +34,11 @@ H = 1.0          # vertical domain extent
 Lx = 2H          # horizontal domain extent
 Nx, Nz = 128, 64 # horizontal, vertical resolution
 
-grid = RegularRectilinearGrid(size = (Nx, Nz),
-                                 x = (-Lx/2, Lx/2),
-                                 z = (-H, 0),
-                              halo = (3, 3),
-                          topology = (Bounded, Flat, Bounded))
+grid = RectilinearGrid(size = (Nx, Nz),
+                          x = (-Lx/2, Lx/2),
+                          z = (-H, 0),
+                       halo = (3, 3),
+                   topology = (Bounded, Flat, Bounded))
 
 # ### Boundary conditions
 #
@@ -91,69 +91,55 @@ nothing # hide
 # Runge-Kutta time-stepping scheme, and a `BuoyancyTracer`.
 
 model = NonhydrostaticModel(
-           architecture = CPU(),
                    grid = grid,
               advection = WENO5(),
             timestepper = :RungeKutta3,
                 tracers = :b,
                buoyancy = BuoyancyTracer(),
                 closure = IsotropicDiffusivity(ν=ν, κ=κ),
-    boundary_conditions = (b=b_bcs,)
-    )
+    boundary_conditions = (; b=b_bcs))
 
 # ## Simulation set-up
 #
 # We set up a simulation that runs up to ``t = 40`` with a `JLD2OutputWriter` that saves the flow
 # speed, ``\sqrt{u^2 + w^2}``, the buoyancy, ``b``, andthe vorticity, ``\partial_z u - \partial_x w``.
-#
+
+simulation = Simulation(model, Δt=1e-2, stop_time=40.0)
+
 # ### The `TimeStepWizard`
 #
 # The TimeStepWizard manages the time-step adaptively, keeping the Courant-Freidrichs-Lewy 
 # (CFL) number close to `0.75` while ensuring the time-step does not increase beyond the 
 # maximum allowable value for numerical stability.
 
-max_Δt = 1e-1
-wizard = TimeStepWizard(cfl=0.75, Δt=1e-2, max_change=1.2, max_Δt=max_Δt)
+wizard = TimeStepWizard(cfl=0.75, max_change=1.2, max_Δt=1e-1)
+
+simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(50))
 
 # ### A progress messenger
 #
 # We write a function that prints out a helpful progress message while the simulation runs.
 
-CFL = AdvectiveCFL(wizard)
-
-start_time = time_ns()
-
 progress(sim) = @printf("i: % 6d, sim time: % 1.3f, wall time: % 10s, Δt: % 1.4f, CFL: %.2e\n",
-                        sim.model.clock.iteration,
-                        sim.model.clock.time,
-                        prettytime(1e-9 * (time_ns() - start_time)),
-                        sim.Δt.Δt,
-                        CFL(sim.model))
-nothing # hide
+                        iteration(sim), time(sim), prettytime(sim.run_wall_time),
+                        sim.Δt, AdvectiveCFL(sim.Δt)(sim.model))
 
-# ### Build the simulation
-#
-# We're ready to build and run the simulation. We ask for a progress message and time-step update
-# every 50 iterations,
-
-simulation = Simulation(model, Δt = wizard, iteration_interval = 50,
-                                                     stop_time = 40.0,
-                                                      progress = progress)
+simulation.callbacks[:progress] = Callback(progress, IterationInterval(50))
 
 # ### Output
 #
-# We use `ComputedField`s to diagnose and output the total flow speed, the vorticity, ``\zeta``,
-# and the buoyancy, ``b``. Note that `ComputedField`s take "AbstractOperations" on `Field`s as
+# We use computed `Field`s to diagnose and output the total flow speed, the vorticity, ``\zeta``,
+# and the buoyancy, ``b``. Note that computed `Field`s take "AbstractOperations" on `Field`s as
 # input:
 
 u, v, w = model.velocities # unpack velocity `Field`s
 b = model.tracers.b        # unpack buoyancy `Field`
 
 ## total flow speed
-s = ComputedField(sqrt(u^2 + w^2))
+s = Field(sqrt(u^2 + w^2))
 
 ## y-component of vorticity
-ζ = ComputedField(∂z(u) - ∂x(w))
+ζ = Field(∂z(u) - ∂x(w))
 
 outputs = (s = s, b = b, ζ = ζ)
 nothing # hide
@@ -223,7 +209,7 @@ anim = @animate for i in 1:length(times)
     ζ_snapshot = interior(ζ_timeseries[i])[:, 1, :]
     
     b = b_timeseries[i]
-    χ = ComputedField(κ * (∂x(b)^2 + ∂z(b)^2))
+    χ = Field(κ * (∂x(b)^2 + ∂z(b)^2))
     compute!(χ)
     
     b_snapshot = interior(b)[:, 1, :]
@@ -327,8 +313,8 @@ nothing # hide
 
 grid = b_timeseries.grid
 
-∫ⱽ_s² = ReducedField(Nothing, Nothing, Nothing, CPU(), grid, dims=(1, 2, 3))
-∫ⱽ_mod²_∇b = ReducedField(Nothing, Nothing, Nothing, CPU(), grid, dims=(1, 2, 3))
+∫ⱽ_s² = Field{Nothing, Nothing, Nothing}(grid)
+∫ⱽ_mod²_∇b = Field{Nothing, Nothing, Nothing}(grid)
 
 # We recover the time from the saved `FieldTimeSeries` and construct two empty arrays to store
 # the volume-averaged kinetic energy and the instantaneous Nusselt number,

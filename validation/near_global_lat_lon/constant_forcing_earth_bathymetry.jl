@@ -7,7 +7,9 @@ using Oceananigans
 using Oceananigans.Coriolis: HydrostaticSphericalCoriolis
 using Oceananigans.Architectures: arch_array
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, GridFittedBottom
-using Oceananigans.TurbulenceClosures: HorizontallyCurvilinearAnisotropicDiffusivity
+using Oceananigans.TurbulenceClosures: HorizontallyCurvilinearAnisotropicDiffusivity,
+                                       ExplicitTimeDiscretization, 
+                                       VerticallyImplicitTimeDiscretization
 using Oceananigans.Units
 using Oceananigans.Operators: Δzᵃᵃᶜ
 
@@ -23,7 +25,7 @@ Nx = 128
 Ny = 60
 Nz = 18
 
-arch = GPU()
+arch = CPU()
 reference_density = 1035
 
 #####
@@ -52,11 +54,12 @@ H = 3600.0
 # H = - minimum(bathymetry)
 
 # A spherical domain
-@show underlying_grid = RegularLatitudeLongitudeGrid(size = (Nx, Ny, Nz),
-                                                     longitude = (-180, 180),
-                                                     latitude = latitude,
-                                                     halo = (3, 3, 3),
-                                                     z = (-H, 0))
+@show underlying_grid = LatitudeLongitudeGrid(arch,
+                                              size = (Nx, Ny, Nz),
+                                              longitude = (-180, 180),
+                                              latitude = latitude,
+                                              halo = (3, 3, 3),
+                                              z = (-H, 0))
 
 grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bathymetry))
 
@@ -64,25 +67,25 @@ grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bathymetry))
 ##### Physics and model setup
 #####
 
-equatorial_Δx = grid.radius * deg2rad(grid.Δλ)
-diffusive_time_scale = 120days
-
-νh₂ = 1e-3 * equatorial_Δx^2 / diffusive_time_scale
-νh₄ = 1e-5 * equatorial_Δx^4 / diffusive_time_scale
 νh = 1e+5
 νz = 1e-2
 κh = 1e+3
 κz = 1e-4
 
-background_diffusivity = HorizontallyCurvilinearAnisotropicDiffusivity(νh=νh, νz=νz, κh=κh, κz=κz)
-convective_adjustment = ConvectiveAdjustmentVerticalDiffusivity(convective_κz = 1.0)
+# Fully explicit
+background_diffusivity = HorizontallyCurvilinearAnisotropicDiffusivity(νh=νh, νz=νz, κh=κh, κz=κz, time_discretization=ExplicitTimeDiscretization())
+convective_adjustment = ConvectiveAdjustmentVerticalDiffusivity(convective_κz = 1.0, time_discretization=ExplicitTimeDiscretization())
+
+# Vertically-implicit, horizontally-explicit
+#background_diffusivity = HorizontallyCurvilinearAnisotropicDiffusivity(νh=νh, νz=νz, κh=κh, κz=κz, time_discretization=VerticallyImplicitTimeDiscretization())
+#convective_adjustment = ConvectiveAdjustmentVerticalDiffusivity(convective_κz = 1.0, time_discretization=VerticallyImplicitTimeDiscretization())
 
 #####
 ##### Boundary conditions / constant-in-time surface forcing
 #####
 
-Δz_top = CUDA.@allowscalar Δzᵃᵃᶜ(1, 1, grid.Nz, grid)
-Δz_bottom = CUDA.@allowscalar Δzᵃᵃᶜ(1, 1, 1, grid)
+Δz_top = CUDA.@allowscalar Δzᵃᵃᶜ(1, 1, grid.Nz, grid.grid)
+Δz_bottom = CUDA.@allowscalar Δzᵃᵃᶜ(1, 1, 1, grid.grid)
 
 @inline surface_temperature_relaxation(i, j, grid, clock, fields, p) = @inbounds p.λ * (fields.T[i, j, grid.Nz] - p.T★[i, j])
 
@@ -107,8 +110,6 @@ v_bcs = FieldBoundaryConditions(top = v_wind_stress_bc, bottom = v_bottom_drag_b
 T_bcs = FieldBoundaryConditions(top = T_surface_relaxation_bc)
 
 model = HydrostaticFreeSurfaceModel(grid = grid,
-                                    architecture = arch,
-                                    free_surface = ExplicitFreeSurface(),
                                     #free_surface = ImplicitFreeSurface(maximum_iterations=10),
                                     #free_surface = ImplicitFreeSurface(),
                                     momentum_advection = VectorInvariant(),
@@ -170,8 +171,10 @@ display(setup_fig)
 
 u, v, w = model.velocities
 η = model.free_surface.η
+
 T = model.tracers.T
 T .= 5
+
 S = model.tracers.S
 S .= 30
 
@@ -182,16 +185,18 @@ S .= 30
 # Time-scale for gravity wave propagation across the smallest grid cell
 g = model.free_surface.gravitational_acceleration
 gravity_wave_speed = sqrt(g * grid.Lz) # hydrostatic (shallow water) gravity wave speed
-    
-minimum_Δx = abs(grid.radius * cosd(maximum(abs, grid.φᵃᶜᵃ[1:grid.Ny])) * deg2rad(grid.Δλ))
-minimum_Δy = abs(grid.radius * deg2rad(grid.Δφ))
-wave_propagation_time_scale = min(minimum_Δx, minimum_Δy) / gravity_wave_speed
+
+#minimum_Δx = abs(grid.radius * cosd(maximum(abs, grid.φᵃᶜᵃ[1:grid.Ny])) * deg2rad(grid.Δλ))
+#minimum_Δy = abs(grid.radius * deg2rad(grid.Δφ))
+#wave_propagation_time_scale = min(minimum_Δx, minimum_Δy) / gravity_wave_speed
 
 if model.free_surface isa ExplicitFreeSurface
     Δt = 60seconds #0.2 * minimum_Δx / gravity_wave_speed
 else
     Δt = 20minutes
 end
+
+simulation = Simulation(model, Δt = Δt, stop_time = 1day)
 
 start_time = [time_ns()]
 
@@ -220,17 +225,13 @@ function progress(sim)
     return nothing
 end
 
-simulation = Simulation(model,
-                        Δt = Δt,
-                        stop_time = 1day,
-                        iteration_interval = 10,
-                        progress = progress)
+simulation.callbacks[:progress] = Callback(progress, IterationInterval(10))
 
 output_fields = merge(model.velocities, model.tracers, (; η=model.free_surface.η))
 output_prefix = "global_lat_lon_$(grid.Nx)_$(grid.Ny)_$(grid.Nz)"
 
 simulation.output_writers[:fields] = JLD2OutputWriter(model, output_fields,
-                                                      schedule = TimeInterval(10day),
+                                                      schedule = TimeInterval(10days),
                                                       prefix = output_prefix,
                                                       force = true)
 
@@ -241,14 +242,13 @@ run!(simulation)
 
 @info """
 
-    Simulation took $(prettytime(simulation.run_time))
-
     Background diffusivity: $background_diffusivity
-    Minimum wave propagation time scale: $(prettytime(wave_propagation_time_scale))
     Free surface: $(typeof(model.free_surface).name.wrapper)
     Time step: $(prettytime(Δt))
 
 """
+#   Simulation took $(prettytime(simulation.run_time))
+#   Minimum wave propagation time scale: $(prettytime(wave_propagation_time_scale))
 
 #####
 ##### Visualize solution

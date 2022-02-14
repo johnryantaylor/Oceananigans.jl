@@ -72,17 +72,24 @@ end
 
 function serializeproperty!(file, location, p::Field{LX, LY, LZ}) where {LX, LY, LZ}
     serializeproperty!(file, location * "/location", (LX(), LY(), LZ()))
-    serializeproperty!(file, location * "/data", p.data.parent)
+    serializeproperty!(file, location * "/data", parent(p))
     serializeproperty!(file, location * "/boundary_conditions", p.boundary_conditions)
 end
 
 # Special serializeproperty! for AB2 time stepper struct used by the checkpointer so
 # it only saves the fields and not the tendency BCs or χ value (as they can be
 # constructed by the `Model` constructor).
-function serializeproperty!(file, location,
-                            ts::Union{QuasiAdamsBashforth2TimeStepper, RungeKutta3TimeStepper})
+function serializeproperty!(file, location, ts::RungeKutta3TimeStepper)
     serializeproperty!(file, location * "/Gⁿ", ts.Gⁿ)
     serializeproperty!(file, location * "/G⁻", ts.G⁻)
+    return nothing
+end
+
+function serializeproperty!(file, location, ts::QuasiAdamsBashforth2TimeStepper)
+    serializeproperty!(file, location * "/Gⁿ", ts.Gⁿ)
+    serializeproperty!(file, location * "/G⁻", ts.G⁻)
+    serializeproperty!(file, location * "/previous_Δt", ts.previous_Δt)
+    return nothing
 end
 
 serializeproperty!(file, location, p::NamedTuple) =

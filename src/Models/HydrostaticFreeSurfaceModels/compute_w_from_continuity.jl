@@ -1,10 +1,14 @@
 using Oceananigans.Architectures: device, device_event
-using Oceananigans.Operators: div_xyᶜᶜᵃ, Δzᵃᵃᶜ
+using Oceananigans.Operators: div_xyᶜᶜᶜ, Δzᶜᶜᶜ
 
 """
-Compute the vertical velocity w by integrating the continuity equation from the bottom upwards
+    compute_w_from_continuity!(model)
 
-    `w^{n+1} = -∫ [∂/∂x (u^{n+1}) + ∂/∂y (v^{n+1})] dz`
+Compute the vertical velocity ``w`` by integrating the continuity equation from the bottom upwards:
+
+```
+w^{n+1} = -∫ [∂/∂x (u^{n+1}) + ∂/∂y (v^{n+1})] dz
+```
 """
 compute_w_from_continuity!(model) = compute_w_from_continuity!(model.velocities, model.architecture, model.grid)
 
@@ -27,6 +31,6 @@ end
     i, j = @index(Global, NTuple)
     U.w[i, j, 1] = 0
     @unroll for k in 2:grid.Nz+1
-        @inbounds U.w[i, j, k] = U.w[i, j, k-1] - Δzᵃᵃᶜ(i, j, k-1, grid) * div_xyᶜᶜᵃ(i, j, k-1, grid, U.u, U.v)
+        @inbounds U.w[i, j, k] = U.w[i, j, k-1] - Δzᶜᶜᶜ(i, j, k-1, grid) * div_xyᶜᶜᶜ(i, j, k-1, grid, U.u, U.v)
     end
 end

@@ -4,13 +4,10 @@ using Dates: AbstractTime, now
 
 using Oceananigans.Fields
 
-using Oceananigans: short_show
-using Oceananigans.Utils: show_schedule
 using Oceananigans.Grids: topology, halo_size, all_x_nodes, all_y_nodes, all_z_nodes
 using Oceananigans.Utils: versioninfo_with_gpu, oceananigans_versioninfo
 using Oceananigans.TimeSteppers: float_or_date_time
-using Oceananigans.Diagnostics: WindowedSpatialAverage
-using Oceananigans.Fields: reduced_location, location, FieldSlicer, parent_slice_indices
+using Oceananigans.Fields: reduced_dimensions, reduced_location, location, FieldSlicer, parent_slice_indices
 
 dictify(outputs) = outputs
 dictify(outputs::NamedTuple) = Dict(string(k) => dictify(v) for (k, v) in zip(keys(outputs), values(outputs)))
@@ -37,12 +34,12 @@ function default_dimensions(output, grid, field_slicer)
     TX, TY, TZ = topology(grid)
 
     return Dict(
-        "xC" => all_x_nodes(Center, grid).parent[parent_slice_indices(Center, TX, Nx, Hx, field_slicer.i, field_slicer.with_halos)],
-        "xF" => all_x_nodes(Face, grid).parent[parent_slice_indices(Face, TX, Nx, Hx, field_slicer.i, field_slicer.with_halos)],
-        "yC" => all_y_nodes(Center, grid).parent[parent_slice_indices(Center, TY, Ny, Hy, field_slicer.j, field_slicer.with_halos)],
-        "yF" => all_y_nodes(Face, grid).parent[parent_slice_indices(Face, TY, Ny, Hy, field_slicer.j, field_slicer.with_halos)],
-        "zC" => all_z_nodes(Center, grid).parent[parent_slice_indices(Center, TZ, Nz, Hz, field_slicer.k, field_slicer.with_halos)],
-        "zF" => all_z_nodes(Face, grid).parent[parent_slice_indices(Face, TZ, Nz, Hz, field_slicer.k, field_slicer.with_halos)])
+        "xC" => parent(all_x_nodes(Center, grid))[parent_slice_indices(Center, TX, Nx, Hx, field_slicer.i, field_slicer.with_halos)],
+        "xF" => parent(all_x_nodes(Face, grid))[parent_slice_indices(Face, TX, Nx, Hx, field_slicer.i, field_slicer.with_halos)],
+        "yC" => parent(all_y_nodes(Center, grid))[parent_slice_indices(Center, TY, Ny, Hy, field_slicer.j, field_slicer.with_halos)],
+        "yF" => parent(all_y_nodes(Face, grid))[parent_slice_indices(Face, TY, Ny, Hy, field_slicer.j, field_slicer.with_halos)],
+        "zC" => parent(all_z_nodes(Center, grid))[parent_slice_indices(Center, TZ, Nz, Hz, field_slicer.k, field_slicer.with_halos)],
+        "zF" => parent(all_z_nodes(Face, grid))[parent_slice_indices(Face, TZ, Nz, Hz, field_slicer.k, field_slicer.with_halos)])
 end
 
 default_dimensions(outputs::Dict{String,<:LagrangianParticles}, grid, field_slicer) =
@@ -141,7 +138,7 @@ end
 
 Construct a `NetCDFOutputWriter` that writes `(label, output)` pairs in `outputs` (which should
 be a `Dict`) to a NetCDF file, where `label` is a string that labels the output and `output` is
-either a `Field` (e.g. `model.velocities.u` or an `AveragedField`) or a function `f(model)` that
+either a `Field` (e.g. `model.velocities.u`) or a function `f(model)` that
 returns something to be written to disk. Custom output requires the spatial `dimensions` (a
 `Dict`) to be manually specified (see examples).
 
@@ -179,15 +176,15 @@ Saving the u velocity field and temperature fields, the full 3D fields and surfa
 to separate NetCDF files:
 
 ```jldoctest netcdf1
-using Oceananigans, Oceananigans.OutputWriters
+using Oceananigans
 
-grid = RegularRectilinearGrid(size=(16, 16, 16), extent=(1, 1, 1));
+grid = RectilinearGrid(size=(16, 16, 16), extent=(1, 1, 1))
 
-model = NonhydrostaticModel(grid=grid);
+model = NonhydrostaticModel(grid=grid, tracers=:c)
 
-simulation = Simulation(model, Δt=12, stop_time=3600);
+simulation = Simulation(model, Δt=12, stop_time=3600)
 
-fields = Dict("u" => model.velocities.u, "T" => model.tracers.T);
+fields = Dict("u" => model.velocities.u, "c" => model.tracers.c)
 
 simulation.output_writers[:field_writer] =
     NetCDFOutputWriter(model, fields, filepath="fields.nc", schedule=TimeInterval(60))
@@ -196,7 +193,7 @@ simulation.output_writers[:field_writer] =
 NetCDFOutputWriter scheduled on TimeInterval(1 minute):
 ├── filepath: fields.nc
 ├── dimensions: zC(16), zF(17), xC(16), yF(16), xF(16), yC(16), time(0)
-├── 2 outputs: ["T", "u"]
+├── 2 outputs: ["c", "u"]
 ├── field slicer: FieldSlicer(:, :, :, with_halos=false)
 └── array type: Array{Float32}
 ```
@@ -210,7 +207,7 @@ simulation.output_writers[:surface_slice_writer] =
 NetCDFOutputWriter scheduled on TimeInterval(1 minute):
 ├── filepath: surface_xy_slice.nc
 ├── dimensions: zC(1), zF(1), xC(16), yF(16), xF(16), yC(16), time(0)
-├── 2 outputs: ["T", "u"]
+├── 2 outputs: ["c", "u"]
 ├── field slicer: FieldSlicer(:, :, 16, with_halos=false)
 └── array type: Array{Float32}
 ```
@@ -226,7 +223,7 @@ simulation.output_writers[:averaged_profile_writer] =
 NetCDFOutputWriter scheduled on TimeInterval(1 minute):
 ├── filepath: averaged_z_profile.nc
 ├── dimensions: zC(16), zF(17), xC(1), yF(1), xF(1), yC(1), time(0)
-├── 2 outputs: ["T", "u"] averaged on AveragedTimeInterval(window=20 seconds, stride=1, interval=1 minute)
+├── 2 outputs: ["c", "u"] averaged on AveragedTimeInterval(window=20 seconds, stride=1, interval=1 minute)
 ├── field slicer: FieldSlicer(1, 1, :, with_halos=false)
 └── array type: Array{Float32}
 ```
@@ -235,24 +232,24 @@ NetCDFOutputWriter scheduled on TimeInterval(1 minute):
 provided that their `dimensions` are provided:
 
 ```jldoctest
-using Oceananigans, Oceananigans.OutputWriters
+using Oceananigans
 
-grid = RegularRectilinearGrid(size=(16, 16, 16), extent=(1, 2, 3));
+grid = RectilinearGrid(size=(16, 16, 16), extent=(1, 2, 3))
 
-model = NonhydrostaticModel(grid=grid);
+model = NonhydrostaticModel(grid=grid)
 
-simulation = Simulation(model, Δt=1.25, stop_iteration=3);
+simulation = Simulation(model, Δt=1.25, stop_iteration=3)
 
 f(model) = model.clock.time^2; # scalar output
 
-g(model) = model.clock.time .* exp.(znodes(Center, grid)); # vector/profile output
+g(model) = model.clock.time .* exp.(znodes(Center, grid)) # vector/profile output
 
 h(model) = model.clock.time .* (   sin.(xnodes(Center, grid, reshape=true)[:, :, 1])
-                            .*     cos.(ynodes(Face, grid, reshape=true)[:, :, 1])); # xy slice output
+                            .*     cos.(ynodes(Face, grid, reshape=true)[:, :, 1])) # xy slice output
 
-outputs = Dict("scalar" => f, "profile" => g, "slice" => h);
+outputs = Dict("scalar" => f, "profile" => g, "slice" => h)
 
-dims = Dict("scalar" => (), "profile" => ("zC",), "slice" => ("xC", "yC"));
+dims = Dict("scalar" => (), "profile" => ("zC",), "slice" => ("xC", "yC"))
 
 output_attributes = Dict(
     "scalar"  => Dict("longname" => "Some scalar", "units" => "bananas"),
@@ -260,7 +257,7 @@ output_attributes = Dict(
     "slice"   => Dict("longname" => "Some slice", "units" => "mushrooms")
 );
 
-global_attributes = Dict("location" => "Bay of Fundy", "onions" => 7);
+global_attributes = Dict("location" => "Bay of Fundy", "onions" => 7)
 
 simulation.output_writers[:things] =
     NetCDFOutputWriter(model, outputs,
@@ -392,20 +389,6 @@ define_output_variable!(dataset, output::WindowedTimeAverage{<:AbstractField}, a
     define_output_variable!(dataset, output.operand, args...)
 
 
-""" Defines variable for WindowedSpatialAverage outputs """
-function define_output_variable!(dataset,
-                                 wtsa::Union{WindowedSpatialAverage, WindowedTimeAverage{<:WindowedSpatialAverage}},
-                                 name, array_type, compression, attributes, dimensions)
-    wsa = wtsa isa WindowedTimeAverage ? wtsa.operand : wtsa
-    LX, LY, LZ = reduced_location(location(wsa.field), dims=wsa.dims)
-
-    output_dims = tuple(xdim(LX)..., ydim(LY)..., zdim(LZ)...)
-    defVar(dataset, name, eltype(array_type), (output_dims..., "time"),
-           compression=compression, attrib=attributes)
-    return nothing
-end
-
-
 #####
 ##### Write output
 #####
@@ -415,7 +398,7 @@ Base.close(nc::NetCDFOutputWriter) = close(nc.dataset)
 
 function save_output!(ds, output, model, ow, time_index, name)
     data = fetch_and_convert_output(output, model, ow)
-    data = drop_averaged_dims(output, data)
+    data = drop_output_dims(output, data)
 
     colons = Tuple(Colon() for _ in 1:ndims(data))
     ds[name][colons..., time_index] = data
@@ -478,9 +461,9 @@ function write_output!(ow::NetCDFOutputWriter, model)
     return nothing
 end
 
-drop_averaged_dims(output, data) = data # fallback
-drop_averaged_dims(output::AveragedField, data) = dropdims(data, dims=output.dims)
-drop_averaged_dims(output::WindowedTimeAverage{<:AveragedField}, data) = dropdims(data, dims=output.operand.dims)
+drop_output_dims(output, data) = data # fallback
+drop_output_dims(output::Field, data) = dropdims(data, dims=reduced_dimensions(output))
+drop_output_dims(output::WindowedTimeAverage{<:Field}, data) = dropdims(data, dims=reduced_dimensions(output.operand))
 
 #####
 ##### Show
@@ -494,10 +477,10 @@ function Base.show(io::IO, ow::NetCDFOutputWriter)
 
     averaging_schedule = output_averaging_schedule(ow)
 
-    print(io, "NetCDFOutputWriter scheduled on $(show_schedule(ow.schedule)):", '\n',
+    print(io, "NetCDFOutputWriter scheduled on $(summary(ow.schedule)):", '\n',
         "├── filepath: $(ow.filepath)", '\n',
         "├── dimensions: $dims", '\n',
         "├── $(length(ow.outputs)) outputs: $(keys(ow.outputs))", show_averaging_schedule(averaging_schedule), '\n',
-        "├── field slicer: $(short_show(ow.field_slicer))", '\n',
+        "├── field slicer: $(summary(ow.field_slicer))", '\n',
         "└── array type: ", show_array_type(ow.array_type))
 end

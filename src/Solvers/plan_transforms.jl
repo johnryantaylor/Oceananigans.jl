@@ -11,6 +11,13 @@
 ##### efficient transforms. `A` will be mutated.
 #####
 
+##### Only for regular grids (FX == FY == FZ <: Number) 
+##### and vertically stretched grids (FX == FY <: Number)
+
+const Regular             = RegRectilinearGrid
+const VerticallyStretched = HRegRectilinearGrid
+
+
 function plan_forward_transform(A::Array, ::Periodic, dims, planner_flag=FFTW.PATIENT)
     length(dims) == 0 && return nothing
     return FFTW.plan_fft!(A, dims, flags=planner_flag)
@@ -73,7 +80,7 @@ backward_orders(::Type{Bounded},  ::Type{Bounded},  ::Type{Periodic}) = (3, 1, 2
 backward_orders(::Type{Bounded},  ::Type{Bounded},  ::Type{Bounded})  = (1, 2, 3)
 
 " Used by FFTBasedPoissonSolver "
-function plan_transforms(arch, grid::RegularRectilinearGrid, storage, planner_flag)
+function plan_transforms(grid::Regular, storage, planner_flag)
     Nx, Ny, Nz = size(grid)
     topo = topology(grid)
     periodic_dims = findall(t -> t == Periodic, topo)
@@ -82,6 +89,8 @@ function plan_transforms(arch, grid::RegularRectilinearGrid, storage, planner_fl
     # Convert Flat to Bounded for inferring batchability and transform ordering
     # Note that transforms are omitted in Flat directions.
     unflattened_topo = Tuple(T() isa Flat ? Bounded : T for T in topo)
+
+    arch = architecture(grid)
 
     if arch isa GPU && !(unflattened_topo in batchable_GPU_topologies)
 
@@ -101,15 +110,15 @@ function plan_transforms(arch, grid::RegularRectilinearGrid, storage, planner_fl
         b_order = backward_orders(unflattened_topo...)
 
         forward_transforms = (
-            DiscreteTransform(forward_plans[f_order[1]], Forward(), arch, grid, [f_order[1]]),
-            DiscreteTransform(forward_plans[f_order[2]], Forward(), arch, grid, [f_order[2]]),
-            DiscreteTransform(forward_plans[f_order[3]], Forward(), arch, grid, [f_order[3]])
+            DiscreteTransform(forward_plans[f_order[1]], Forward(), grid, [f_order[1]]),
+            DiscreteTransform(forward_plans[f_order[2]], Forward(), grid, [f_order[2]]),
+            DiscreteTransform(forward_plans[f_order[3]], Forward(), grid, [f_order[3]])
         )
 
         backward_transforms = (
-            DiscreteTransform(backward_plans[b_order[1]], Backward(), arch, grid, [b_order[1]]),
-            DiscreteTransform(backward_plans[b_order[2]], Backward(), arch, grid, [b_order[2]]),
-            DiscreteTransform(backward_plans[b_order[3]], Backward(), arch, grid, [b_order[3]])
+            DiscreteTransform(backward_plans[b_order[1]], Backward(), grid, [b_order[1]]),
+            DiscreteTransform(backward_plans[b_order[2]], Backward(), grid, [b_order[2]]),
+            DiscreteTransform(backward_plans[b_order[3]], Backward(), grid, [b_order[3]])
         )
 
     else
@@ -123,16 +132,16 @@ function plan_transforms(arch, grid::RegularRectilinearGrid, storage, planner_fl
         forward_bounded_plan = plan_forward_transform(storage, Bounded(), bounded_dims, planner_flag)
 
         forward_transforms = (
-            DiscreteTransform(forward_bounded_plan, Forward(), arch, grid, bounded_dims),
-            DiscreteTransform(forward_periodic_plan, Forward(), arch, grid, periodic_dims)
+            DiscreteTransform(forward_bounded_plan, Forward(), grid, bounded_dims),
+            DiscreteTransform(forward_periodic_plan, Forward(), grid, periodic_dims)
         )
 
         backward_periodic_plan = plan_backward_transform(storage, Periodic(), periodic_dims, planner_flag)
         backward_bounded_plan = plan_backward_transform(storage, Bounded(), bounded_dims, planner_flag)
 
         backward_transforms = (
-            DiscreteTransform(backward_periodic_plan, Backward(), arch, grid, periodic_dims),
-            DiscreteTransform(backward_bounded_plan, Backward(), arch, grid, bounded_dims)
+            DiscreteTransform(backward_periodic_plan, Backward(), grid, periodic_dims),
+            DiscreteTransform(backward_bounded_plan, Backward(), grid, bounded_dims)
         )
     end
 
@@ -141,8 +150,9 @@ function plan_transforms(arch, grid::RegularRectilinearGrid, storage, planner_fl
     return transforms
 end
 
+
 """ Used by FourierTridiagonalPoissonSolver. """
-function plan_transforms(arch, grid::VerticallyStretchedRectilinearGrid, storage, planner_flag)
+function plan_transforms(grid::VerticallyStretched, storage, planner_flag)
     Nx, Ny, Nz = size(grid)
     TX, TY, TZ = topo = topology(grid)
 
@@ -152,7 +162,9 @@ function plan_transforms(arch, grid::VerticallyStretchedRectilinearGrid, storage
 
     # Convert Flat to Bounded for ordering purposes (transforms are omitted in Flat directions anyways)
 
-    !(topo[3] === Bounded) && error("Cannot plan transforms on z-periodic VerticallyStretchedRectilinearGrids.")
+    !(topo[3] === Bounded) && error("Cannot plan transforms on z-periodic RectilinearGrids.")
+
+    arch = architecture(grid)
 
     if arch isa CPU
         # This is the case where batching transforms is possible. It's always possible on the CPU
@@ -164,14 +176,14 @@ function plan_transforms(arch, grid::VerticallyStretchedRectilinearGrid, storage
         forward_periodic_plan = plan_forward_transform(storage, Periodic(), periodic_dims, planner_flag)
         forward_bounded_plan = plan_forward_transform(storage, Bounded(), bounded_dims, planner_flag)
 
-        forward_transforms = (DiscreteTransform(forward_bounded_plan, Forward(), arch, grid, bounded_dims),
-                              DiscreteTransform(forward_periodic_plan, Forward(), arch, grid, periodic_dims))
+        forward_transforms = (DiscreteTransform(forward_bounded_plan, Forward(), grid, bounded_dims),
+                              DiscreteTransform(forward_periodic_plan, Forward(), grid, periodic_dims))
 
         backward_periodic_plan = plan_backward_transform(storage, Periodic(), periodic_dims, planner_flag)
         backward_bounded_plan = plan_backward_transform(storage, Bounded(), bounded_dims, planner_flag)
 
-        backward_transforms = (DiscreteTransform(backward_periodic_plan, Backward(), arch, grid, periodic_dims),
-                               DiscreteTransform(backward_bounded_plan, Backward(), arch, grid, bounded_dims))
+        backward_transforms = (DiscreteTransform(backward_periodic_plan, Backward(), grid, periodic_dims),
+                               DiscreteTransform(backward_bounded_plan, Backward(), grid, bounded_dims))
 
     elseif !(Bounded in (TX, TY))
         # We're on the GPU and either (Periodic, Periodic), (Flat, Periodic), or (Periodic, Flat) in xy.
@@ -179,8 +191,8 @@ function plan_transforms(arch, grid::VerticallyStretchedRectilinearGrid, storage
         forward_periodic_plan = plan_forward_transform(storage, Periodic(), [1, 2], planner_flag)
         backward_periodic_plan = plan_backward_transform(storage, Periodic(), [1, 2], planner_flag)
 
-        forward_transforms = tuple(DiscreteTransform(forward_periodic_plan, Forward(), arch, grid, [1, 2]))
-        backward_transforms = tuple(DiscreteTransform(backward_periodic_plan, Backward(), arch, grid, [1, 2]))
+        forward_transforms = tuple(DiscreteTransform(forward_periodic_plan, Forward(), grid, [1, 2]))
+        backward_transforms = tuple(DiscreteTransform(backward_periodic_plan, Backward(), grid, [1, 2]))
 
     else # we are on the GPU and we cannot / should not batch!
         rs_storage = reshape(storage, (Ny, Nx, Nz))
@@ -202,11 +214,11 @@ function plan_transforms(arch, grid::VerticallyStretchedRectilinearGrid, storage
         f_order = Tuple(f_order[i] for i in findall(d -> d != 3, f_order))
         b_order = Tuple(b_order[i] for i in findall(d -> d != 3, b_order))
 
-        forward_transforms = (DiscreteTransform(forward_plans[f_order[1]], Forward(), arch, grid, [f_order[1]]),
-                              DiscreteTransform(forward_plans[f_order[2]], Forward(), arch, grid, [f_order[2]]))
+        forward_transforms = (DiscreteTransform(forward_plans[f_order[1]], Forward(), grid, [f_order[1]]),
+                              DiscreteTransform(forward_plans[f_order[2]], Forward(), grid, [f_order[2]]))
 
-        backward_transforms = (DiscreteTransform(backward_plans[b_order[1]], Backward(), arch, grid, [b_order[1]]),
-                               DiscreteTransform(backward_plans[b_order[2]], Backward(), arch, grid, [b_order[2]]))
+        backward_transforms = (DiscreteTransform(backward_plans[b_order[1]], Backward(), grid, [b_order[1]]),
+                               DiscreteTransform(backward_plans[b_order[2]], Backward(), grid, [b_order[2]]))
     end
 
     transforms = (forward=forward_transforms, backward=backward_transforms)

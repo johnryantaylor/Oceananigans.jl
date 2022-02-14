@@ -1,5 +1,6 @@
-using Oceananigans.Diagnostics
-using Oceananigans.TimeSteppers: Clock
+include("dependencies_for_runtests.jl")
+
+using Oceananigans.TurbulenceClosures.CATKEVerticalDiffusivities: CATKEVerticalDiffusivity
 
 for closure in closures
     @eval begin
@@ -25,9 +26,9 @@ end
 function run_constant_isotropic_diffusivity_fluxdiv_tests(FT=Float64; ν=FT(0.3), κ=FT(0.7))
           arch = CPU()
        closure = IsotropicDiffusivity(FT, κ=(T=κ, S=κ), ν=ν)
-          grid = RegularRectilinearGrid(FT, size=(3, 1, 4), extent=(3, 1, 4))
-    velocities = VelocityFields(arch, grid)
-       tracers = TracerFields((:T, :S), arch, grid)
+          grid = RectilinearGrid(FT, size=(3, 1, 4), extent=(3, 1, 4))
+    velocities = VelocityFields(grid)
+       tracers = TracerFields((:T, :S), grid)
          clock = Clock(time=0.0)
 
     u, v, w = velocities
@@ -56,11 +57,11 @@ end
 function anisotropic_diffusivity_fluxdiv(FT=Float64; νh=FT(0.3), κh=FT(0.7), νz=FT(0.1), κz=FT(0.5))
           arch = CPU()
        closure = AnisotropicDiffusivity(FT, νh=νh, νz=νz, κh=(T=κh, S=κh), κz=(T=κz, S=κz))
-          grid = RegularRectilinearGrid(FT, size=(3, 1, 4), extent=(3, 1, 4))
+          grid = RectilinearGrid(arch, FT, size=(3, 1, 4), extent=(3, 1, 4))
            eos = LinearEquationOfState(FT)
       buoyancy = SeawaterBuoyancy(FT, gravitational_acceleration=1, equation_of_state=eos)
-    velocities = VelocityFields(arch, grid)
-       tracers = TracerFields((:T, :S), arch, grid)
+    velocities = VelocityFields(grid)
+       tracers = TracerFields((:T, :S), grid)
          clock = Clock(time=0.0)
 
     u, v, w, T, S = merge(velocities, tracers)
@@ -93,15 +94,12 @@ function anisotropic_diffusivity_fluxdiv(FT=Float64; νh=FT(0.3), κh=FT(0.7), �
 end
 
 function time_step_with_variable_isotropic_diffusivity(arch)
-
+    grid = RectilinearGrid(arch, size=(1, 1, 1), extent=(1, 2, 3))
     closure = IsotropicDiffusivity(ν = (x, y, z, t) -> exp(z) * cos(x) * cos(y) * cos(t),
                                    κ = (x, y, z, t) -> exp(z) * cos(x) * cos(y) * cos(t))
 
-    model = NonhydrostaticModel(architecture=arch, closure=closure,
-                                grid=RegularRectilinearGrid(size=(1, 1, 1), extent=(1, 2, 3)))
-
+    model = NonhydrostaticModel(; grid, closure)
     time_step!(model, 1, euler=true)
-
     return true
 end
 
@@ -114,8 +112,7 @@ function time_step_with_variable_anisotropic_diffusivity(arch)
                                      κy = (x, y, z, t) -> 2 * exp(z) * cos(x) * cos(y) * cos(t),
                                      κz = (x, y, z, t) -> 4 * exp(z) * cos(x) * cos(y) * cos(t))
 
-    model = NonhydrostaticModel(grid=RegularRectilinearGrid(size=(1, 1, 1), extent=(1, 2, 3)),
-                                architecture=arch, closure=closure)
+    model = NonhydrostaticModel(grid=RectilinearGrid(arch, size=(1, 1, 1), extent=(1, 2, 3)), closure=closure)
 
     time_step!(model, 1, euler=true)
 
@@ -125,27 +122,52 @@ end
 function time_step_with_tupled_closure(FT, arch)
     closure_tuple = (AnisotropicMinimumDissipation(FT), AnisotropicDiffusivity(FT))
 
-    model = NonhydrostaticModel(architecture=arch, closure=closure_tuple,
-                                grid=RegularRectilinearGrid(FT, size=(1, 1, 1), extent=(1, 2, 3)))
+    model = NonhydrostaticModel(closure=closure_tuple,
+                                grid=RectilinearGrid(arch, FT, size=(1, 1, 1), extent=(1, 2, 3)))
 
     time_step!(model, 1, euler=true)
 
     return true
 end
 
+function run_time_step_with_catke_tests(arch, closure)
+    grid = RectilinearGrid(arch, size=(1, 1, 1), extent=(1, 2, 3))
+    buoyancy = BuoyancyTracer()
+
+    # These shouldn't work (need :e in tracers)
+    @test_throws ArgumentError HydrostaticFreeSurfaceModel(; grid, closure, buoyancy, tracers=:b)
+    @test_throws ArgumentError HydrostaticFreeSurfaceModel(; grid, closure, buoyancy, tracers=(:b, :E))
+
+    # CATKE isn't supported with NonhydrostaticModel (we don't diffuse vertical velocity)
+    @test_throws ErrorException NonhydrostaticModel(; grid, closure, buoyancy, tracers=(:b, :e))
+
+    model = HydrostaticFreeSurfaceModel(; grid, closure, buoyancy, tracers = (:b, :e))
+
+    # Default boundary condition is Flux, Nothing... with CATKE this has to change.
+    @test !(model.tracers.e.boundary_conditions.top.condition isa BoundaryCondition{Flux, Nothing})
+
+    # Can we time-step?
+    time_step!(model, 1)
+    @test true
+
+    # Once more for good measure 
+    time_step!(model, 1)
+    @test true
+
+    # Return model if we want to do more tests
+    return model
+end
+
 function compute_closure_specific_diffusive_cfl(closurename)
-    grid = RegularRectilinearGrid(size=(1, 1, 1), extent=(1, 2, 3))
+    grid = RectilinearGrid(CPU(), size=(1, 1, 1), extent=(1, 2, 3))
     closure = getproperty(TurbulenceClosures, closurename)()
 
-    model = NonhydrostaticModel(grid=grid, closure=closure)
+    model = NonhydrostaticModel(; grid, closure)
     dcfl = DiffusiveCFL(0.1)
     @test dcfl(model) isa Number
 
-    tracerless_model = NonhydrostaticModel(grid=grid, closure=closure,
-                                           buoyancy=nothing, tracers=nothing)
-
+    tracerless_model = NonhydrostaticModel(; grid, closure, buoyancy=nothing, tracers=nothing)
     dcfl = DiffusiveCFL(0.2)
-
     @test dcfl(tracerless_model) isa Number
 
     return nothing
@@ -183,6 +205,34 @@ end
         for arch in archs
             @test time_step_with_variable_isotropic_diffusivity(arch)
             @test time_step_with_variable_anisotropic_diffusivity(arch)
+        end
+    end
+
+    @testset "Time-stepping with CATKE closure" begin
+        @info "  Testing time-stepping with CATKE closure and closure tuples with CATKE..."
+        for arch in archs
+            warning = false
+
+            @info "    Testing time-stepping CATKE by itself..."
+            closure = CATKEVerticalDiffusivity(; warning)
+            run_time_step_with_catke_tests(arch, closure)
+
+            @info "    Testing time-stepping CATKE in a 2-tuple with IsotropicDiffusivity..."
+            closure = (CATKEVerticalDiffusivity(; warning), IsotropicDiffusivity())
+            model = run_time_step_with_catke_tests(arch, closure)
+            @test first(model.closure) === closure[1]
+
+            # Test that closure tuples with CATKE are correctly reordered
+            @info "    Testing time-stepping CATKE in a 2-tuple with AnisotropicDiffusivity..."
+            closure = (AnisotropicDiffusivity(), CATKEVerticalDiffusivity(; warning))
+            model = run_time_step_with_catke_tests(arch, closure)
+            @test first(model.closure) === closure[2]
+
+            # These are slow to compile...
+            @info "    Testing time-stepping CATKE in a 3-tuple..."
+            closure = (AnisotropicDiffusivity(), CATKEVerticalDiffusivity(; warning), IsotropicDiffusivity())
+            model = run_time_step_with_catke_tests(arch, closure)
+            @test first(model.closure) === closure[2]
         end
     end
 

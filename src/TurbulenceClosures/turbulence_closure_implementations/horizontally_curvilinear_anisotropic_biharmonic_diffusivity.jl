@@ -1,3 +1,5 @@
+import Oceananigans.Grids: required_halo_size
+
 """
     HorizontallyCurvilinearAnisotropicBiharmonicDiffusivity{N, K}
 
@@ -12,23 +14,25 @@ end
 
 const HCABD = HorizontallyCurvilinearAnisotropicBiharmonicDiffusivity
 
+required_halo_size(::HCABD) = 2
+
 """
-    HorizontallyCurvilinearAnisotropicBiharmonicDiffusivity([FT=Float64;] νh=0, κh=0, νz=0, κz=0)
+    HorizontallyCurvilinearAnisotropicBiharmonicDiffusivity(FT=Float64; νh=0, κh=0, νz=nothing, κz=nothing)
 
 Returns parameters for an anisotropic biharmonic diffusivity model on curvilinear grids.
 
-Keyword args
-============
+Keyword arguments
+=================
 
-    * `νh`: Horizontal viscosity. `Number`, `AbstractArray`, or `Function(x, y, z, t)`.
+  - `νh`: Horizontal viscosity. `Number`, `AbstractArray`, or `Function(x, y, z, t)`.
 
-    * `νz`: Vertical viscosity. `Number`, `AbstractArray`, or `Function(x, y, z, t)`.
+  - `νz`: Vertical viscosity. `Number`, `AbstractArray`, or `Function(x, y, z, t)`.
 
-    * `κh`: Horizontal diffusivity. `Number`, `AbstractArray`, or `Function(x, y, z, t)`, or
-            `NamedTuple` of diffusivities with entries for each tracer.
+  - `κh`: Horizontal diffusivity. `Number`, `AbstractArray`, or `Function(x, y, z, t)`, or
+          `NamedTuple` of diffusivities with entries for each tracer.
 
-    * `κz`: Vertical diffusivity. `Number`, `AbstractArray`, or `Function(x, y, z, t)`, or
-            `NamedTuple` of diffusivities with entries for each tracer.
+  - `κz`: Vertical diffusivity. `Number`, `AbstractArray`, or `Function(x, y, z, t)`, or
+          `NamedTuple` of diffusivities with entries for each tracer.
 """
 function HorizontallyCurvilinearAnisotropicBiharmonicDiffusivity(FT=Float64; νh=0, κh=0, νz=nothing, κz=nothing)
     νh = convert_diffusivity(FT, νh)
@@ -72,7 +76,7 @@ end
 
 @inline function diffusive_flux_z(i, j, k, grid, closure::HCABD, c, ::Val{tracer_index}, clock, args...) where tracer_index
     @inbounds κz = closure.κz[tracer_index]
-    return - κᶜᶜᶠ(i, j, k, grid, clock, κz) * ∂³zᵃᵃᶠ(i, j, k, grid, c)
+    return - κᶜᶜᶠ(i, j, k, grid, clock, κz) * ∂³zᶜᶜᶠ(i, j, k, grid, c)
 end
 
 @inline diffusive_flux_z(i, j, k, grid, closure::NoVerticalDiffHCABD, args...) = zero(eltype(grid))
