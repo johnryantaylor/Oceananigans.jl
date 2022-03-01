@@ -1,5 +1,7 @@
 module StokesDrift
 
+using SpecialFunctions
+
 export
     UniformStokesDrift,
     ∂t_uˢ,
@@ -77,6 +79,28 @@ const USD = UniformStokesDrift
 @inline z_curl_Uˢ_cross_U(i, j, k, grid, sw::USD, U, time) = @inbounds begin (
     - ℑxzᶜᵃᶠ(i, j, k, grid, U.u) * sw.∂z_uˢ(znode(Face(), k, grid), time)
     - ℑyzᵃᶜᶠ(i, j, k, grid, U.v) * sw.∂z_vˢ(znode(Face(), k, grid), time) )
+end
+
+Base.@kwdef struct EquilibriumStokesDrift{T}
+    Ckᵖ :: T = 0.167 # Peak wavenumber scaling parameter
+    Cuˢ :: T = 0.016 # Scaling between wind stress and surface stokes drift
+    Aⱽ :: T = 1960.7 # "acceleration" parameter relating wind stress to Stokes transport
+    τˣ :: T = 0.0 # Wind stress in x-direction
+    τʸ :: T = 0.0 # Wind stress in y-direction
+end
+
+@inline Stokes_transport(eq::EquilibriumStokesDrift) = eq.Aⱽ * (eq.τˣ^2 + eq.τʸ^2)
+
+# TODO: add a reference
+@inline T₁(k, z) = exp(2k * z)
+@inline T₂(k, z) = sqrt(2π*k*abs(z)) * erfc(sqrt(2k*abs(z)))
+
+# @inline surface_stokes_drift(eq::EquilibriumWindWaveStokesDrift)
+
+@inline function peak_wavenumber(eq::) =  = 
+    uˢ₀ = surface_Stokes_drift(eq)
+    Vˢ = Stokes_transport(eq)
+    return eq.Ckᵖ * uˢ₀ / Vˢ
 end
 
 end # module
