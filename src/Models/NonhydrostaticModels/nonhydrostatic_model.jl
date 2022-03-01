@@ -12,6 +12,7 @@ using Oceananigans.Fields: BackgroundFields, Field, tracernames, VelocityFields,
 using Oceananigans.Forcings: model_forcing
 using Oceananigans.Grids: inflate_halo_size, with_halo, architecture
 using Oceananigans.Solvers: FFTBasedPoissonSolver
+using Oceananigans.StokesDrift: regularize_stokes_drift
 using Oceananigans.TimeSteppers: Clock, TimeStepper, update_state!
 using Oceananigans.TurbulenceClosures: validate_closure, with_tracers, DiffusivityFields, time_discretization, implicit_diffusion_solver
 using Oceananigans.TurbulenceClosures.CATKEVerticalDiffusivities: FlavorOfCATKE
@@ -165,7 +166,8 @@ function NonhydrostaticModel(;    grid,
 
     # Next, we form a list of default boundary conditions:
     prognostic_field_names = (:u, :v, :w, tracernames(tracers)...)
-    default_boundary_conditions = NamedTuple{prognostic_field_names}(FieldBoundaryConditions() for name in prognostic_field_names)
+    default_boundary_conditions = NamedTuple{prognostic_field_names}(FieldBoundaryConditions()
+                                                                     for name in prognostic_field_names)
 
     # Finally, we merge specified, embedded, and default boundary conditions. Specified boundary conditions
     # have precedence, followed by embedded, followed by default.
@@ -191,6 +193,9 @@ function NonhydrostaticModel(;    grid,
     # Instantiate timestepper if not already instantiated
     implicit_solver = implicit_diffusion_solver(time_discretization(closure), grid)
     timestepper = TimeStepper(timestepper, grid, tracernames(tracers), implicit_solver=implicit_solver)
+
+    # Put the grid in StokesDrift
+    stokes_drift = regularize_stokes_drift(stokes_drift, grid, clock)
 
     # Regularize forcing for model tracer and velocity fields.
     model_fields = merge(velocities, tracers)

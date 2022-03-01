@@ -60,8 +60,8 @@ pressure anomaly.
              - x_f_cross_U(i, j, k, grid, coriolis, velocities)
              - hydrostatic_pressure_gradient_x(i, j, k, grid, hydrostatic_pressure)
              - ∂ⱼ_τ₁ⱼ(i, j, k, grid, closure, clock, velocities, diffusivities, tracers, buoyancy)
-             + x_curl_Uˢ_cross_U(i, j, k, grid, stokes_drift, velocities, clock.time)
-             + ∂t_uˢ(i, j, k, grid, stokes_drift, clock.time)
+             + x_curl_Uˢ_cross_U(i, j, k, grid, stokes_drift, velocities)
+             + ∂t_uˢ(i, j, k, grid, stokes_drift)
              + x_dot_g_b(i, j, k, grid, buoyancy, tracers)
              + forcings.u(i, j, k, grid, clock, merge(velocities, tracers)))
 end
@@ -113,8 +113,8 @@ pressure anomaly.
              - y_f_cross_U(i, j, k, grid, coriolis, velocities)
              - hydrostatic_pressure_gradient_y(i, j, k, grid, hydrostatic_pressure)
              - ∂ⱼ_τ₂ⱼ(i, j, k, grid, closure, clock, velocities, diffusivities, tracers, buoyancy)
-             + y_curl_Uˢ_cross_U(i, j, k, grid, stokes_drift, velocities, clock.time)
-             + ∂t_vˢ(i, j, k, grid, stokes_drift, clock.time)
+             + y_curl_Uˢ_cross_U(i, j, k, grid, stokes_drift, velocities)
+             + ∂t_vˢ(i, j, k, grid, stokes_drift)
              + y_dot_g_b(i, j, k, grid, buoyancy, tracers)
              + forcings.v(i, j, k, grid, clock, merge(velocities, tracers)))
 end
@@ -162,8 +162,8 @@ velocity components, tracer fields, and precalculated diffusivities where applic
              - div_𝐯w(i, j, k, grid, advection, velocities, background_fields.velocities.w)
              - z_f_cross_U(i, j, k, grid, coriolis, velocities)
              - ∂ⱼ_τ₃ⱼ(i, j, k, grid, closure, clock, velocities, diffusivities, tracers, buoyancy)
-             + z_curl_Uˢ_cross_U(i, j, k, grid, stokes_drift, velocities, clock.time)
-             + ∂t_wˢ(i, j, k, grid, stokes_drift, clock.time)
+             + z_curl_Uˢ_cross_U(i, j, k, grid, stokes_drift, velocities)
+             + ∂t_wˢ(i, j, k, grid, stokes_drift)
              + forcings.w(i, j, k, grid, clock, merge(velocities, tracers)))
 end
 

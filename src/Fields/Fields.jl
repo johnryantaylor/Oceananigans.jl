@@ -31,16 +31,17 @@ include("broadcasting_abstract_fields.jl")
 
 Build a field from `a` at `loc` and on `grid`.
 """
-function field(loc, a::AbstractArray, grid)
+function field(loc, a::AbstractArray, grid; kw...)
     f = Field(loc, grid)
     a = arch_array(architecture(grid), a)
     f .= a
     return f
 end
 
-field(loc, a::Function, grid) = FunctionField(loc, a, grid)
+field(loc, a::Function, grid; kw...) = FunctionField(loc, a, grid; kw...)
+field(loc, a::Nothing, grid; kw...) = nothing
 
-function field(loc, f::Field, grid)
+function field(loc, f::Field, grid; kw...)
     loc === location(f) && grid === f.grid && return f
     error("Cannot construct field at $loc and on $grid from $f")
 end
