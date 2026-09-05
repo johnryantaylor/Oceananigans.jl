@@ -30,7 +30,7 @@ const BFOrNamedTuple = Union{BackgroundFields, NamedTuple}
 struct DefaultHydrostaticPressureAnomaly end
 
 mutable struct NonhydrostaticModel{TS, E, A<:AbstractArchitecture, G, CL, B, R, SD, U, C, Φ, F, FS,
-                                   V, S, K, BG, P, BGC, AF, BT, AW} <: AbstractModel{TS, A}
+                                   V, S, K, BG, P, BGC, AF, BT, AW, ET} <: AbstractModel{TS, A}
 
          architecture :: A        # Computer `Architecture` on which `Model` is run
                  grid :: G        # Grid of physical points on which `Model` is solved
@@ -54,6 +54,7 @@ mutable struct NonhydrostaticModel{TS, E, A<:AbstractArchitecture, G, CL, B, R, 
      auxiliary_fields :: AF       # User-specified auxiliary fields for forcing functions and boundary conditions
    boundary_transport :: BT       # Container for transports at open boundaries
    advecting_vertical_velocity :: AW # `wⁿ` for the adaptive-implicit advection split (`nothing` without it)
+     extended_tracers :: ET       # Passive tracers on a replicated, horizontally-extended domain (ENDLESS)
 end
 
 supported_timesteppers = (:QuasiAdamsBashforth2, :RungeKutta3)
@@ -121,6 +122,8 @@ Keyword arguments
   - `pressure_solver`: Pressure solver to be used in the model. If `nothing` (default), the model constructor
     chooses the default based on the `grid` provide.
   - `auxiliary_fields`: `NamedTuple` of auxiliary fields. Default: `NamedTuple()`
+  - `extended_tracers`: [`ExtendedTracers`](@ref) specifying passive tracers evolved on a domain built by
+    replicating `grid` horizontally, following the ENDLESS approach of Chen et al. (2016). Default: `nothing`.
 """
 function NonhydrostaticModel(grid;
                              clock = Clock(grid),
@@ -142,7 +145,8 @@ function NonhydrostaticModel(grid;
                              nonhydrostatic_pressure = nothing,
                              closure_fields = nothing,
                              pressure_solver = nothing,
-                             auxiliary_fields = NamedTuple())
+                             auxiliary_fields = NamedTuple(),
+                             extended_tracers = nothing)
 
     arch = architecture(grid)
 
@@ -261,7 +265,9 @@ function NonhydrostaticModel(grid;
 
     boundary_conditions = regularize_field_boundary_conditions(boundary_conditions, grid, field_names)
 
-    # Ensure `closure` describes all tracers
+    # Ensure `closure` describes all tracers. `validated_closure` is kept unspecialized so that
+    # extended tracers, which have their own names, can specialize it for themselves.
+    validated_closure = closure
     closure = with_tracers(tracernames(tracers), closure)
 
     # TODO: limit free surface to `nothing` (rigid lid) or ImplicitFreeSurface
@@ -307,10 +313,14 @@ function NonhydrostaticModel(grid;
 
     !isnothing(particles) && arch isa Distributed && error("LagrangianParticles are not supported on Distributed architectures.")
 
+    # Materialize the extended (ENDLESS) tracer domain, if any
+    extended_tracers = materialize_extended_tracers(extended_tracers, grid, clock, advection, validated_closure,
+                                                    velocities, tracers, auxiliary_fields, closure_fields)
+
     model = NonhydrostaticModel(arch, grid, clock, advection, buoyancy, coriolis, stokes_drift,
                                 forcing, closure, free_surface, background_fields, particles, biogeochemistry, velocities, tracers,
                                 pressures, closure_fields, timestepper, pressure_solver, auxiliary_fields, boundary_transport,
-                                advecting_vertical_velocity)
+                                advecting_vertical_velocity, extended_tracers)
 
     materialize_clock!(clock, timestepper)
     update_state!(model)
@@ -366,7 +376,8 @@ function prognostic_state(model::NonhydrostaticModel)
             closure_fields = prognostic_state(model.closure_fields),
             timestepper = prognostic_state(model.timestepper),
             auxiliary_fields = prognostic_state(model.auxiliary_fields),
-            boundary_transport = prognostic_state(model.boundary_transport))
+            boundary_transport = prognostic_state(model.boundary_transport),
+            extended_tracers = prognostic_state(model.extended_tracers))
 end
 
 function restore_prognostic_state!(restored::NonhydrostaticModel, from)
@@ -378,6 +389,7 @@ function restore_prognostic_state!(restored::NonhydrostaticModel, from)
     restore_prognostic_state!(restored.closure_fields, from.closure_fields)
     restore_prognostic_state!(restored.auxiliary_fields, from.auxiliary_fields)
     restore_prognostic_state!(restored.boundary_transport, from.boundary_transport)
+    restore_prognostic_state!(restored.extended_tracers, from.extended_tracers)
     return restored
 end
 

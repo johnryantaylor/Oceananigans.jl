@@ -49,6 +49,7 @@ Distributed.addprocs(2)
         "baroclinic_adjustment.jl",
         "tilted_bottom_boundary_layer.jl",
         "convecting_plankton.jl",
+        "endless_plume_dispersion.jl",
         "two_dimensional_turbulence.jl",
         "one_dimensional_diffusion.jl",
         "internal_wave.jl",
@@ -126,6 +127,7 @@ Distributed.rmprocs()
 example_pages = [
     "One-dimensional diffusion"             => "literated/one_dimensional_diffusion.md",
     "Two-dimensional turbulence"            => "literated/two_dimensional_turbulence.md",
+    "Plume dispersion on an extended domain" => "literated/endless_plume_dispersion.md",
     "Internal wave"                         => "literated/internal_wave.md",
     "Internal tide by a seamount"           => "literated/internal_tide.md",
     "Convecting plankton"                   => "literated/convecting_plankton.md",
@@ -150,6 +152,7 @@ model_pages = [
     "Boundary conditions" => "models/boundary_conditions.md",
     "Forcings" => "models/forcing_functions.md",
     "Lagrangian particles" => "models/lagrangian_particles.md",
+    "Extended tracers (ENDLESS)" => "models/extended_tracers.md",
     "Background fields" => "models/background_fields.md",
 ]
 

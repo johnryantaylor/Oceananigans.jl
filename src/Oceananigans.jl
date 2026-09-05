@@ -86,6 +86,9 @@ export
     # Lagrangian particle tracking
     LagrangianParticles, DroguedParticleDynamics,
 
+    # Extended (ENDLESS) passive tracer domains
+    ExtendedTracers,
+
     # Models
     NonhydrostaticModel, HydrostaticFreeSurfaceModel, ShallowWaterModel,
     ConservativeFormulation, VectorInvariantFormulation,
@@ -276,6 +279,7 @@ include("StokesDrifts.jl")
 include("TurbulenceClosures/TurbulenceClosures.jl")
 include("Forcings/Forcings.jl")
 include("Biogeochemistry.jl")
+include("ExtendedTracerDomains/ExtendedTracerDomains.jl")
 
 # TODO: move above
 include("Models/Models.jl")
@@ -302,6 +306,7 @@ using .TurbulenceClosures
 using .Solvers
 using .OutputReaders
 using .Forcings
+using .ExtendedTracerDomains
 using .ImmersedBoundaries
 using .DistributedComputations
 using .OrthogonalSphericalShellGrids

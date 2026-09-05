@@ -36,6 +36,8 @@ function Oceananigans.TimeSteppers.compute_tendencies!(model::NonhydrostaticMode
 
     update_tendencies!(model.biogeochemistry, model)
 
+    compute_extended_tracer_tendencies!(model)
+
     return nothing
 end
 

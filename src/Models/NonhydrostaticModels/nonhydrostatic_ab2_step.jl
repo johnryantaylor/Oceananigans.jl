@@ -52,6 +52,8 @@ function pressure_correction_ab2_step!(model, Δt, callbacks)
                        advecting_velocities)
     end
 
+    ab2_step_extended_tracers!(model, kernel_Δt, model.timestepper.χ)
+
     compute_pressure_correction!(model, kernel_Δt)
     make_pressure_correction!(model, kernel_Δt)
 

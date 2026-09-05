@@ -27,6 +27,8 @@ function cache_previous_tendencies!(model::NonhydrostaticModel)
                 model.timestepper.Gⁿ[field_name])
     end
 
+    cache_previous_extended_tracer_tendencies!(model)
+
     return nothing
 end
 

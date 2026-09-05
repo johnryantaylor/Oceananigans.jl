@@ -20,12 +20,12 @@ function Base.show(io::IO, model::NonhydrostaticModel)
         "├── closure: ", closure_summary(model.closure), "\n",
         "├── buoyancy: ", summary(model.buoyancy), "\n")
 
-    if isnothing(model.particles)
-        print(io, "└── coriolis: ", summary(model.coriolis))
-    else
-        particles = model.particles.properties
-        properties = propertynames(particles)
-        print(io, "├── coriolis: ", summary(model.coriolis), "\n")
-        print(io, "└── particles: ", summary(model.particles))
+    entries = ["coriolis: " * summary(model.coriolis)]
+    isnothing(model.particles)        || push!(entries, "particles: " * summary(model.particles))
+    isnothing(model.extended_tracers) || push!(entries, "extended tracers: " * extension_summary(model.extended_tracers))
+
+    for (n, entry) in enumerate(entries)
+        is_last = n == length(entries)
+        print(io, is_last ? "└── " : "├── ", entry, is_last ? "" : "\n")
     end
 end

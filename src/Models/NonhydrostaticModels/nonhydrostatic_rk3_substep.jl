@@ -58,6 +58,8 @@ function pressure_correction_rk3_substep!(model, Δt, γⁿ, ζⁿ, callbacks)
                        advecting_velocities)
     end
 
+    rk3_substep_extended_tracers!(model, kernel_Δt, γⁿ, ζⁿ)
+
     compute_pressure_correction!(model, Δτ)
     make_pressure_correction!(model, Δτ)
 

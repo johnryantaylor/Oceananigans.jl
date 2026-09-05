@@ -157,6 +157,7 @@ CUDA.allowscalar() do
         @testset "Model and time stepping tests (part 3)" begin
             include("test_dynamics.jl")
             include("test_biogeochemistry.jl")
+            include("test_extended_tracers.jl")
             include("test_seawater_density.jl")
             include("test_model_diagnostics.jl")
             include("test_orthogonal_spherical_shell_time_stepping.jl")

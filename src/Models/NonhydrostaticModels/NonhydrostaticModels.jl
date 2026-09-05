@@ -20,12 +20,19 @@ using Oceananigans.Solvers: GridWithFFTSolver, GridWithFourierTridiagonalSolver,
 using Oceananigans.Utils
 using Oceananigans.Utils: sum_of_velocities
 
+using Oceananigans.ExtendedTracerDomains: ExtendedTracers, extended_grid, tile, extension_summary
+
 using ..Models: initialize_boundary_transport
 
 import Oceananigans: fields, prognostic_fields
 import Oceananigans.Advection: cell_advection_timescale
 import Oceananigans.Simulations: timestepper
 import Oceananigans.TimeSteppers: step_lagrangian_particles!, update_state!
+import Oceananigans.ExtendedTracerDomains: materialize_extended_tracers,
+                                           compute_extended_tracer_tendencies!,
+                                           ab2_step_extended_tracers!,
+                                           rk3_substep_extended_tracers!,
+                                           cache_previous_extended_tracer_tendencies!
 
 function nonhydrostatic_pressure_solver(::Distributed, local_grid::XYZRegularRG, ::Nothing)
     global_grid = reconstruct_global_grid(local_grid)
@@ -127,5 +134,6 @@ include("pressure_correction.jl")
 include("nonhydrostatic_tendency_kernel_functions.jl")
 include("compute_nonhydrostatic_tendencies.jl")
 include("compute_nonhydrostatic_buffer_tendencies.jl")
+include("nonhydrostatic_extended_tracers.jl")
 
 end # module
